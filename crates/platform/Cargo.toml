@@ -1,0 +1,31 @@
+[package]
+name = "pi-clock-platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Fallible platform monotonic sources for composable clocks"
+
+[features]
+default = []
+browser = ["dep:wasm-bindgen", "dep:js-sys"]
+
+[dependencies]
+pi-clock-core = { version = "0.1", path = "../core" }
+pi_result.workspace = true
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+rustix = { version = "1.1", default-features = false, features = ["std", "time"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Performance"] }
+
+[target.'cfg(all(target_os = "wasi", target_env = "p1"))'.dependencies]
+wasip1 = "1.0"
+
+[target.'cfg(all(target_os = "wasi", target_env = "p2"))'.dependencies]
+wasip2 = { version = "2.0", default-features = false, features = ["std"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+wasm-bindgen = { version = "0.2", optional = true, default-features = false, features = ["std"] }
+js-sys = { version = "0.3", optional = true, default-features = false, features = ["std"] }
