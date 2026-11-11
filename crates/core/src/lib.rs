@@ -6,3 +6,5 @@
 //! 由消费者（consumer）保存样本（sample）并计算经过时长（elapsed duration）。
 
 pub mod source;
+
+pub mod std_time;
