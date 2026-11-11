@@ -1,0 +1,10 @@
+[package]
+name = "pi-clock-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Foundational source contracts for composable clocks"
+
+[dependencies]
+pi_result.workspace = true
