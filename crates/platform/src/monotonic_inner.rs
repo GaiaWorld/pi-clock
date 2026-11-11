@@ -1,29 +1,35 @@
-// 本文件承载同一平台来源（platform source）的私有实现入口（private implementation entries）。
-// 类型、字段、唯一发布位置及公开编排由父模块（parent module）定义；这里只落实其边界。
-// 不引用其他私有实现，不向外提供状态、锁守卫或原始载荷构造出口。
+// 当前文件与配对声明共享同一个 Rust 模块（module）。
+// 类型（types）、字段（fields）、唯一发布位置（unique publication site）及内部出口（internal entries）
+// 由配对声明提供；这里落实局部操作（local operations），不导出内部状态（internal state）或原始载荷（raw payload）。
 
-use std::sync::OnceLock;
-
-use pi_clock_core::std_time::Duration;
-use pi_result::Result;
-
-use super::{PlatformMonotonicSource, PreparedBasis, RawSample, BASIS};
-
-pub(super) fn try_prepare() -> Result<PlatformMonotonicSource> {
+fn source_prepare_inner() -> Result<PlatformMonotonicSource> {
     todo!(r#"实现固定来源的显式准备（explicit source preparation）。
 复用prepare_once并传入BASIS、prepare_basis及一次sample_raw探测；探测仅丢弃原始值，
-不包装或泄露公开样本，不建立上层起点。取回的引用来自静态BASIS后才构造父模块句柄。
+不包装或泄露公开样本，不建立上层起点。取回的引用来自静态BASIS后才构造公开来源句柄。
 成功后的重复调用不重新查询QPF或JavaScript全局对象；不缓存失败，不开线程或时钟缓存。
 只有支持的目标及功能组合可成功；其余返回Unsupported，不能退回日期时间或模拟值。
 浏览器atomics及未启用browser的unknown目标均不可使用内置浏览器后端。
 全部普通错误保持pi_result，不用unwrap／expect或默认成功掩盖缺失基准。"#)
 }
 
-// 私有冷路径（private cold path）同时供生产入口及局部协议验证使用；
-// FnOnce是静态分发的构造／探测边界，不是公开回调或运行时注册。
-// slot决定返回借用的生命周期；生产只传BASIS，测试可用局部槽验证发布机制，
-// 局部测试槽不创建公开来源句柄或第二条生产基准。
-pub(super) fn prepare_once<'a, F, P>(
+fn source_sample_inner(this: &PlatformMonotonicSource) -> Result<PlatformMonotonicSample> {
+    let raw = sample_raw(this.basis)?;
+    Ok(PlatformMonotonicSample { raw })
+}
+
+fn source_elapsed_inner(
+    this: &PlatformMonotonicSource,
+    earlier: &PlatformMonotonicSample,
+    later: &PlatformMonotonicSample,
+) -> Result<Duration> {
+    elapsed_raw(this.basis, &earlier.raw, &later.raw)
+}
+
+fn source_capabilities_inner(this: &PlatformMonotonicSource) -> SourceCapabilities {
+    this.basis.capabilities
+}
+
+fn prepare_once_inner<'a, F, P>(
     slot: &'a OnceLock<PreparedBasis>,
     build: F,
     probe: P,
@@ -43,7 +49,7 @@ set返回后按其合同取得已就绪引用；不进入自旋重试、不使�
 并区分本次失败与全局就绪；局部协议测试不宣称平台取时本身正确。"#)
 }
 
-pub(super) fn prepare_basis() -> Result<PreparedBasis> {
+fn prepare_basis_inner() -> Result<PreparedBasis> {
     todo!(r#"只准备当前目标的基准元数据（basis metadata），不发布。
 Linux／Android固定CLOCK_MONOTONIC及Excludes；WASI预览1／2固定相应导入及Unspecified。
 Windows通过windows-sys查询QPF，只有BOOL成功且频率为正才保存NonZeroU64与Includes；
@@ -59,7 +65,7 @@ Windows通过windows-sys查询QPF，只有BOOL成功且频率为正才保存NonZ
 宿主陷阱伪装成Rust可捕获错误。本函数不做时钟起点、缓存或后台工作。"#)
 }
 
-pub(super) fn sample_raw(basis: &PreparedBasis) -> Result<RawSample> {
+fn sample_raw_inner(basis: &PreparedBasis) -> Result<RawSample> {
     todo!(r#"执行一次真实原始采样（raw real sampling），只借用既定基准。
 Linux／Android使用rustix::time::clock_gettime_dynamic及Known(Monotonic)的可失败出口，
 校验秒数非负与纳秒字段0..十亿后构造Unix载荷；不要改用无Result的clock_gettime。
@@ -76,7 +82,7 @@ WASI预览2用wasip2的monotonic_clock::now原始u64；无Result及宿主陷阱�
 不把依赖内部成本、绑定成本或错误分配说成零。"#)
 }
 
-pub(super) fn elapsed_raw(
+fn elapsed_raw_inner(
     basis: &PreparedBasis,
     earlier: &RawSample,
     later: &RawSample,

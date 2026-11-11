@@ -57,9 +57,6 @@ use pi_clock_core::source::{MonotonicSource, SourceCapabilities};
 use pi_clock_core::std_time::Duration;
 use pi_result::Result;
 
-#[path = "monotonic_impl.rs"]
-mod implementation;
-
 // 一个公开来源家族（source family）在合法部署范围内只发布一个基准。
 // 所有公开样本只能由已准备句柄的采样出口产生；私有载荷不能由安全Rust外部构造，
 // 不提供反序列化、裸数值构造或外部二进制接口（FFI）恢复通路。
@@ -153,7 +150,7 @@ impl PlatformMonotonicSource {
     /// 准备可能调用系统／JavaScript并分配，提交可能短暂等待另一个发布者；
     /// 不持发布内部同步跨越准备／探测，不创建线程、时钟缓存或运行时。
     pub fn try_prepare() -> Result<Self> {
-        implementation::try_prepare()
+        source_prepare_inner()
     }
 }
 
@@ -169,8 +166,7 @@ impl MonotonicSource for PlatformMonotonicSource {
     /// 不分配样本身份、不克隆共享句柄、不扫描队列；系统、绑定及错误包装成本另计，
     /// 不承诺固定纳秒耗时或整个依赖路径等待自由（wait-free）。
     fn try_sample(&self) -> Result<Self::Sample> {
-        let raw = implementation::sample_raw(self.basis)?;
-        Ok(PlatformMonotonicSample { raw })
+        source_sample_inner(self)
     }
 
     // @trace 9
@@ -189,7 +185,7 @@ impl MonotonicSource for PlatformMonotonicSource {
         earlier: &Self::Sample,
         later: &Self::Sample,
     ) -> Result<Duration> {
-        implementation::elapsed_raw(self.basis, &earlier.raw, &later.raw)
+        source_elapsed_inner(self, earlier, later)
     }
 
     // @trace 10
@@ -197,6 +193,93 @@ impl MonotonicSource for PlatformMonotonicSource {
     ///
     /// 只复制描述值，不取时、不查询宿主、不分配或启动维护；不认证准确度及样本身份。
     fn capabilities(&self) -> SourceCapabilities {
-        self.basis.capabilities
+        source_capabilities_inner(self)
     }
 }
+
+// @trace 11
+// 内部用途（internal purpose）：复用或发布一次成功准备的基准（prepared basis）。
+// 本函数（function）只供当前模块（module）内部使用，不是公开接口（public API）。
+// 参数（parameters）：slot 是一次写入槽（one-time initialization slot）的共享借用（shared borrow）；
+// build 是持有所有权（ownership）的构造闭包（construction closure），probe 是持有所有权（ownership）
+// 的探测闭包（probe closure）；两者均采用静态分发（static dispatch），不是运行时注册（runtime registration）。
+// 返回（return）：成功时借用已发布基准（published basis），生命周期（lifetime）受 slot 的借用约束；
+// 生产入口（production entry）只传 BASIS，局部协议验证（local protocol verification）可传局部槽（local slot），
+// 后者不产生公开来源句柄（public source handle），也不增加生产基准（production basis）。
+// 错误（errors）：构造（construction）或探测（probe）失败时原样返回 pi_result 错误并释放本地候选，
+// 本次不写 slot；错误返回不证明并发调用（concurrent call）没有成功发布（publication）。
+// 副作用（side effects）：已就绪时不执行 build 或 probe；未就绪时在发布同步（publication synchronization）
+// 之外依次构造（construction）和探测（probe），各至多一次；通过后尝试一次提交（commit）。
+// 竞争失败时释放候选并复用胜者；不清空或替换 slot，未调用的闭包（closure）仍正常释放。
+// 成本（cost）：已就绪时只检查并借用；首次成本包含闭包（closure）的工作及可能短暂等待的提交（commit），
+// 不在发布同步（publication synchronization）内执行系统调用（system call）或 JavaScript，
+// 不创建线程（thread）、异步运行时（async runtime）或自旋重试（spin retry）。
+fn prepare_once<'a, F, P>(
+    slot: &'a OnceLock<PreparedBasis>,
+    build: F,
+    probe: P,
+) -> Result<&'a PreparedBasis>
+where
+    F: FnOnce() -> Result<PreparedBasis>,
+    P: FnOnce(&PreparedBasis) -> Result<()>,
+{
+    prepare_once_inner(slot, build, probe)
+}
+
+// @trace 12
+// 内部用途（internal purpose）：只准备当前编译目标（compile target）的基准元数据（basis metadata）。
+// 本函数（function）只供当前模块（module）内部使用，不是公开接口（public API）。
+// 参数（parameters）：无；目标平台（target platform）与功能（feature）由当前编译配置（build configuration）确定。
+// 返回（return）：成功时交付尚未发布的基准（unpublished basis），其能力描述（capability description）及
+// 平台数据（platform data）供后续探测（probe）、发布（publication）、采样（sampling）与间隔计算（elapsed calculation）使用。
+// 错误（errors）：不支持的目标、缺失浏览器能力（browser capability），或浏览器对象（browser object）
+// 与函数（function）不符合预期时返回 Unsupported；
+// 系统调用（system call）、绑定调用（binding call）或同步异常（synchronous exception）失败返回 Dependency，保留原因；
+// 宿主陷阱（host trap）、缺失导入（missing import）及进程中止（process termination）仍按本模块（module）边界处理。
+// 副作用（side effects）：可查询系统能力（system capability）或 JavaScript 属性并持有准备结果，
+// 不发布基准（basis）、不建立时钟起点（clock origin）、不创建缓存（cache）或后台工作（background work）。
+// 成本（cost）：取决于对应系统调用（system call）、绑定调用（binding call）与错误构造（error construction），
+// 可能发生分配（allocation）；不承诺固定耗时（fixed latency）。
+fn prepare_basis() -> Result<PreparedBasis> {
+    prepare_basis_inner()
+}
+
+// @trace 13
+// 内部用途（internal purpose）：借用既定基准（prepared basis）执行一次真实原始采样（raw real sampling）。
+// 本函数（function）只供当前模块（module）内部使用，不是公开接口（public API）。
+// 参数（parameters）：basis 是已准备基准（prepared basis）的共享借用（shared borrow）；
+// 准备探测（preparation probe）可传尚未发布的候选基准（candidate basis），正常采样（sampling）使用已发布基准（published basis）。
+// 返回（return）：成功时交付该基准（basis）对应的原始载荷（raw payload）；真实零值（real zero value）合法，
+// 本函数（function）不包装公开样本（public sample）。
+// 错误（errors）：系统调用（system call）、绑定调用（binding call）失败或无效返回值（invalid return value）
+// 返回 Dependency 并保留原因，不伪造零值；宿主陷阱（host trap）与进程中止（process termination）不转成错误返回。
+// 副作用（side effects）：读取一次系统或宿主来源（host source），不修改 basis、不重新绑定来源（source rebinding），
+// 不逐次分配样本身份（sample identity）、克隆共享句柄（shared handle）或取得管理锁（management lock）。
+// 成本（cost）：包含对应系统调用（system call）、绑定调用（binding call）及可能的错误分配（error allocation），
+// 不承诺固定耗时（fixed latency）或整个依赖路径（dependency path）的等待自由（wait freedom）。
+fn sample_raw(basis: &PreparedBasis) -> Result<RawSample> {
+    sample_raw_inner(basis)
+}
+
+// @trace 14
+// 内部用途（internal purpose）：按固定基准（fixed basis）计算两个原始载荷（raw payloads）的受检直接差（checked direct difference）。
+// 本函数（function）只供当前模块（module）内部使用，不是公开接口（public API）。
+// 参数（parameters）：basis 是已准备基准（prepared basis）的共享借用（shared borrow）；
+// earlier 与 later 分别借用起始原始载荷（start raw payload）和终止原始载荷（end raw payload），不消费它们。
+// 返回（return）：成功时交付向下取整（round down）到整数纳秒（integer nanoseconds）的标准时长（standard duration），
+// 同一有效值（valid value）的差为零；浏览器的浮点舍入（floating-point rounding）仍遵守公开说明。
+// 错误（errors）：载荷不相容（incompatible payloads）、逆序（reverse order）、无效数值（invalid numeric value）
+// 或超过标准时长范围（standard-duration range）时返回 InvalidInput，不静默归零、饱和（saturation）或回绕（wraparound）。
+// 副作用（side effects）：不采样（sampling）、不修改参数（parameters）、基准（basis）或能力描述（capability description），
+// 不查询宿主（host）、不建立可写世代（mutable generation）或撤销注册表（revocation registry）。
+// 成本（cost）：只执行局部受检算术（local checked arithmetic）及必要的错误构造（error construction），
+// 错误路径（error path）可能分配（allocation）；不引入系统调用（system call）或同步等待（synchronization wait）。
+fn elapsed_raw(
+    basis: &PreparedBasis,
+    earlier: &RawSample,
+    later: &RawSample,
+) -> Result<Duration> {
+    elapsed_raw_inner(basis, earlier, later)
+}
+
+include!("monotonic_inner.rs");
