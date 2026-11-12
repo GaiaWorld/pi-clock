@@ -3,83 +3,86 @@
 // 内部用途（internal purpose）：instant_from_elapsed_inner落实相应声明（declaration）的局部行为。
 fn instant_from_elapsed_inner(elapsed: Duration) -> Result<GlobalManualInstant>
 {
-    todo!("{}", r#"目标（goal）：将elapsed绑定为全局相对时间点；纯运算，不访问GLOBAL。
-输入与结果（input/result）：elapsed为标准Duration，as_nanos得到u128；仅当不大于u64::MAX才受检转为u64并构造GlobalManualInstant，否则返回ErrorKind::InvalidInput的pi_result错误。
-边界（boundaries）：零和u64::MAX纳秒均合法，Duration::MAX拒绝；不截断、不饱和、不把原样纳秒认成std::Instant或SystemTime。
-验证（verification）：经GlobalManualInstant::try_from_elapsed检查零、最大值、最大值加1ns及Duration::MAX；失败不访问或改变全局时钟。"#)
+    let nanos = u64::try_from(elapsed.as_nanos()).map_err(|_| {
+        pi_result::Error::new(pi_result::ErrorKind::InvalidInput)
+            .attach("经过时长超出时间点范围（elapsed duration exceeds time-point range）")
+    })?;
+    Ok(GlobalManualInstant(nanos))
 }
 
 // 内部用途（internal purpose）：instant_duration_inner落实相应声明（declaration）的局部行为。
 fn instant_duration_inner(value: GlobalManualInstant) -> Duration
 {
-    todo!("{}", r#"目标（goal）：无损返回value距全局起点的标准Duration。
-行为（behavior）：使用value保存的u64总纳秒构造标准Duration；所有合法值均可表示，不能重新取时或检查GLOBAL是否已安装。
-成本（cost）：常数时间，无分配、锁或错误包装，不把值视为Unix日期。
-验证（verification）：ZERO、MAX及跨整秒值与Duration::from_nanos精确相等；与try_from_elapsed往返保持原值。"#)
+    Duration::from_nanos(value.0)
 }
 
 // 内部用途（internal purpose）：instant_add_inner落实相应声明（declaration）的局部行为。
 fn instant_add_inner(value: GlobalManualInstant, duration: Duration) -> Result<GlobalManualInstant>
 {
-    todo!("{}", r#"目标（goal）：在相同全局域内受检计算value加duration，不推进时钟。
-行为（behavior）：以足够宽的整数计算纳秒和并检查u64范围，或先受检缩窄时长再checked_add；超界统一InvalidInput，成功返回新点，不丢精度、不回绕、不饱和。
-依赖与边界（dependencies/boundaries）：可使用标准Duration和私有点表示，不取来源、不访问GLOBAL；非关键局部整数写法可选，不新增公开转换。
-验证（verification）：加0恒等，MAX加0成功、MAX加1ns失败，跨秒精确，Duration::MAX失败；原点及全局缓存不变。"#)
+    // 标准时长（standard duration）的纳秒上限加u64仍在u128内；缩窄（narrowing）单独受检。
+    let nanos = u64::try_from(u128::from(value.0) + duration.as_nanos()).map_err(|_| {
+        pi_result::Error::new(pi_result::ErrorKind::InvalidInput)
+            .attach("时间点加法超界（time-point addition overflow）")
+    })?;
+    Ok(GlobalManualInstant(nanos))
 }
 
 // 内部用途（internal purpose）：instant_sub_inner落实相应声明（declaration）的局部行为。
 fn instant_sub_inner(value: GlobalManualInstant, duration: Duration) -> Result<GlobalManualInstant>
 {
-    todo!("{}", r#"目标（goal）：受检计算value减duration并保持非负时间点域。
-行为（behavior）：比较完整标准Duration纳秒和value，或受检缩窄后checked_sub；超界或下溢返回InvalidInput，禁止下溢归零、取绝对值或回绕。
-状态与成本（state/cost）：纯值运算，不访问GLOBAL、来源或队列，成功路径不分配。
-验证（verification）：同值相减为ZERO，ZERO减0成功、ZERO减1ns失败，跨秒精确及Duration::MAX拒绝；不修改任何时钟。"#)
+    let nanos = u128::from(value.0).checked_sub(duration.as_nanos()).ok_or_else(|| {
+        pi_result::Error::new(pi_result::ErrorKind::InvalidInput)
+            .attach("时间点减法下溢（time-point subtraction underflow）")
+    })?;
+    // 差值（difference）不大于原u64值，转换（conversion）无损。
+    Ok(GlobalManualInstant(nanos as u64))
 }
 
 // 内部用途（internal purpose）：instant_since_inner落实相应声明（declaration）的局部行为。
 fn instant_since_inner(value: GlobalManualInstant, earlier: GlobalManualInstant) -> Result<Duration>
 {
-    todo!("{}", r#"目标（goal）：返回earlier到value的非负标准Duration。
-行为（behavior）：对两个私有u64作checked_sub；同值返回零，逆序返回InvalidInput，其余以Duration::from_nanos无损包装。
-前提（premise）：两值属于公开类型声明的同一拥有者和进程生命周期，不自创跨域身份或隐式锚点。
-验证（verification）：ZERO到MAX精确、相等为零、逆序明确失败；不重新采样或读取全局缓存。"#)
+    let nanos = value.0.checked_sub(earlier.0).ok_or_else(|| {
+        pi_result::Error::new(pi_result::ErrorKind::InvalidInput)
+            .attach("时间点顺序相反（reversed time-point order）")
+    })?;
+    Ok(Duration::from_nanos(nanos))
 }
 
 // 内部用途（internal purpose）：init_global_inner落实相应声明（declaration）的局部行为。
 fn init_global_inner() -> Result<()>
 {
-    todo!("{}", r#"目标（goal）：公开try_init的唯一装配入口，使用私有GLOBAL和内置平台来源。
-前提与调用（premise/calls）：调用壳内try_install(&GLOBAL, PlatformMonotonicSource::try_prepare)，返回其原结果；不复制另一份全局槽，不把重复安装改为成功。
-状态与失败（state/failure）：构造、首样本及竞争清理由try_install/try_build_state各自负责；来源错误保持原报告，不永久缓存失败，不创建线程。
-验证（verification）：通过公开入口及独立进程验证未安装、首装、重复与并发安装；不得新增测试重置、公开来源替换或unsafe Send/Sync。"#)
+    try_install(&GLOBAL, PlatformMonotonicSource::try_prepare)
 }
 
 // 内部用途（internal purpose）：read_global_inner落实相应声明（declaration）的局部行为。
 #[inline]
 fn read_global_inner() -> Result<GlobalManualInstant>
 {
-    todo!("{}", r#"目标（goal）：完成公开全局读取，保持极高频成功路径的固定成本。
-行为（behavior）：只调用GLOBAL.get；None构造InvalidState错误，Some借用有效状态并经壳内read_state取得时间点，再包装pi_result成功值。
-成本与并发（cost/concurrency）：成功不取时、不分配、不加锁、不循环、不记录指标或扫描队列；不使用wait/get_or_init，也不另加原子就绪标记。一次缓存load是本次观察点。
-验证（verification）：公开未初始化错误；没有刷新时读数保持；并发刷新下同线程连续读不回退；完整公开入口性能留待实现后专门测量。"#)
+    let state = GLOBAL.get().ok_or_else(|| {
+        pi_result::Error::new(pi_result::ErrorKind::InvalidState)
+            .attach("手推时钟尚未安装（manual clock is not installed）")
+    })?;
+    Ok(read_state(state))
 }
 
 // 内部用途（internal purpose）：refresh_global_inner落实相应声明（declaration）的局部行为。
 fn refresh_global_inner() -> Result<RefreshOutcome>
 {
-    todo!("{}", r#"目标（goal）：供同步和原生异步公开入口共用的全局刷新装配。
-行为（behavior）：GLOBAL.get为None时报InvalidState，Some仅借用状态调用壳内try_refresh_state并返回原结果；初始化状态在实际调用时判断。
-异步边界（async boundary）：不创建Future内部队列或任务，不await/yield，不登记Waker。async入口第一次poll执行本函数，未poll丢弃不产生效果。
-验证（verification）：同步/异步采用相同错误和结果语义；手动轮询真实Future首次正常Ready，创建时未安装但轮询前已安装按轮询时状态运行；原生Send性质通过实际编译核。"#)
+    let state = GLOBAL.get().ok_or_else(|| {
+        pi_result::Error::new(pi_result::ErrorKind::InvalidState)
+            .attach("手推时钟尚未安装（manual clock is not installed）")
+    })?;
+    try_refresh_state(state)
 }
 
 // 内部用途（internal purpose）：capabilities_global_inner落实相应声明（declaration）的局部行为。
 fn capabilities_global_inner() -> Result<SourceCapabilities>
 {
-    todo!("{}", r#"目标（goal）：返回已经安装的真实来源能力副本。
-行为（behavior）：GLOBAL.get为None返回InvalidState；Some调用state.source的公开MonotonicSource::capabilities并原样包装，不重新准备、采样或查询宿主。
-边界（boundaries）：不修改来源或缓存，不从Unspecified推断Includes/Excludes；结果副本无可写内部权限。
-验证（verification）：未安装错误及安装后多次固定能力一致，无推进副作用；各来源的已定宿主条件不被放宽。"#)
+    let state = GLOBAL.get().ok_or_else(|| {
+        pi_result::Error::new(pi_result::ErrorKind::InvalidState)
+            .attach("手推时钟尚未安装（manual clock is not installed）")
+    })?;
+    Ok(state.source.capabilities())
 }
 
 // 内部用途（internal purpose）：install_inner落实相应声明（declaration）的局部行为。
@@ -88,40 +91,497 @@ where
     S: MonotonicSource,
     F: FnOnce() -> Result<S>,
 {
-    todo!("{}", r#"目标（goal）：实现try_install的单次安装协议，slot只保存成功状态。
-顺序（sequence）：先slot.get；非空立即AlreadyExists，prepare不调用。为空时在发布之外调用prepare一次，再经壳内try_build_state一次构造完整候选；任一步失败原样返回，slot本次不写。
-提交（commit）：slot.set(candidate)成功返回Ok(())；失败取回并正常丢弃败者候选，返回AlreadyExists，保留原实例。禁止用get_or_init保存错误、在发布闭包内执行来源调用或用重置补偿失败。
-并发与资源（concurrency/resources）：他人可在准备时胜出；本次来源失败仍返回原错误，不承诺slot仍空。未调用的prepare正常丢弃；私有局部槽只用于相同生产协议验证，不对外泄露实例。
-验证（verification）：局部槽真实协议检验首装、已装不调用闭包、来源及首样本失败后可重试、并发只有一成功及败者释放；公开全局另用新进程验证，不增加全局复位。"#)
+    if slot.get().is_some() {
+        return Err(pi_result::Error::new(pi_result::ErrorKind::AlreadyExists)
+            .attach("手推时钟已安装（manual clock already installed）"));
+    }
+    // 来源准备与首采样（source preparation and first sampling）不占用发布同步（publication synchronization）。
+    let candidate = try_build_state(prepare()?)?;
+    if let Err(loser) = slot.set(candidate) {
+        // 竞争败者（losing contender）仅释放自己的候选（candidate），原实例（original instance）保留。
+        drop(loser);
+        return Err(pi_result::Error::new(pi_result::ErrorKind::AlreadyExists)
+            .attach("另一调用已安装手推时钟（another call installed the manual clock）"));
+    }
+    Ok(())
 }
 
 // 内部用途（internal purpose）：build_state_inner落实相应声明（declaration）的局部行为。
 fn build_state_inner<S: MonotonicSource>(source: S) -> Result<GlobalManualState<S>>
 {
-    todo!("{}", r#"目标（goal）：只用本次source采一个真实首样本，产生尚未发布的候选状态。
-行为（behavior）：调用source.try_sample一次得到origin，然后交付GlobalManualState { source, origin, cached_nanos: AtomicU64::new(0) }；来源错误原样返回并释放source，不另外计算零间隔或采第二个起点。
-职责边界（responsibility boundary）：不访问GLOBAL/slot、不提交、不重新准备基准、不分配身份，不添加控制状态、等待队列或线程。
-验证（verification）：受控来源计数证明一次首采样，首读零且固定origin，失败不产生状态；成功后普通读取没有来源调用。"#)
+    let origin = source.try_sample()?;
+    Ok(GlobalManualState { source, origin, cached_nanos: AtomicU64::new(0) })
 }
 
 // 内部用途（internal purpose）：read_state_inner落实相应声明（declaration）的局部行为。
 #[inline]
 fn read_state_inner<S: MonotonicSource>(state: &GlobalManualState<S>) -> GlobalManualInstant
 {
-    todo!("{}", r#"目标（goal）：从已有效state取得一个缓存时间点，只做一个共享数值加载。
-行为与成本（behavior/cost）：cached_nanos.load(std::sync::atomic::Ordering::SeqCst)后构造GlobalManualInstant；不读取来源、起点或其它可变字段，不使用CAS/锁/重试/计数器/Arc克隆。
-生命周期（lifetime）：只借用state，返回独立Copy值，不导出可写原子或状态指针；该局部槽不是另一个公开全局时钟。
-验证（verification）：通过read_state或公开try_now观察与合法发布值一致，缓存不因真实等待自动增长；不把读取吞吐倒数当成单次延迟证明。"#)
+    GlobalManualInstant(state.cached_nanos.load(std::sync::atomic::Ordering::SeqCst))
 }
 
 // 内部用途（internal purpose）：refresh_state_inner落实相应声明（declaration）的局部行为。
 fn refresh_state_inner<S: MonotonicSource>(state: &GlobalManualState<S>) -> Result<RefreshOutcome>
 {
-    todo!("{}", r#"目标（goal）：按固定真实起点完成一次非递减刷新，允许多个写者并发。
-取样与检查（sampling/checks）：调用state.source.try_sample一次，再try_elapsed(&state.origin, &sample)一次；错误原样传播。Duration::as_nanos为u128，超u64::MAX返回ResourceExhausted，不截断。采样和检查都在原子闭包之外。
-发布（publication）：固定candidate后，cached_nanos.try_update(SeqCst, SeqCst, |old| if candidate > old { Some(candidate) } else { None })。闭包可多次执行，但只比较两个数，不重新采样、不分配、不通知、不修改其它状态。
-结果（outcome）：原子Ok(previous)代表本次严格提高，sampled与published均candidate且advanced=true；原子Err(observed)是正常未更新，sampled=candidate、published=observed且advanced=false，仍返回pi_result成功。equal/late不能用普通store写回，结果不再加载一个更晚值来改变本次决定的含义。
-失败与成本（failure/cost）：本次采样/间隔/范围失败不写缓存，不能回滚他人并发成功；无后台维护、每次分叉、成功分配或队列扫描。不保证争用重试次数和实际墙钟时限。
-验证（verification）：受控来源经真实try_refresh_state覆盖相等、递增、10迟于11发布仍保留11、来源/间隔错误不写、u64耗尽不写；竞争重试不重复采样；公开入口另核多写多读非递减。不新增任意全局写入或测试复位后门。"#)
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let sample = state.source.try_sample()?;
+    let elapsed = state.source.try_elapsed(&state.origin, &sample)?;
+    let candidate = u64::try_from(elapsed.as_nanos()).map_err(|_| {
+        pi_result::Error::new(pi_result::ErrorKind::ResourceExhausted)
+            .attach("真实经过时长超出缓存范围（real elapsed duration exceeds cache range）")
+    })?;
+    // 重试（retry）只比较固定候选（fixed candidate）；来源调用（source calls）已完成且不会重做。
+    let (published, advanced) = match state.cached_nanos.try_update(SeqCst, SeqCst, |old| {
+        if candidate > old { Some(candidate) } else { None }
+    }) {
+        Ok(_) => (candidate, true),
+        Err(observed) => (observed, false),
+    };
+    // 返回本次决定点（decision point）的值，不用后续加载（subsequent load）改变决定的含义。
+    Ok(RefreshOutcome {
+        sampled: GlobalManualInstant(candidate),
+        published: GlobalManualInstant(published),
+        advanced,
+    })
 }
 
+#[cfg(test)]
+mod tests {
+    //! 私有局部槽（private local slot）仅调用同一生产协议（production protocol）。
+    //! 受控来源（controlled source）只提供样本、错误与计数，不代补安装或发布（publication）。
+
+    use super::*;
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+    use pi_clock_core::source::SuspendBehavior;
+    use pi_result::{Error, ErrorKind};
+
+    /// 单线程受控来源（single-thread controlled source），成功样本（successful samples）由next设置且须非递减。
+    /// 采样／间隔计数（sampling/elapsed counts）包含失败尝试；两个错误槽（error slots）各只消费一次。
+    /// 释放计数（disposal count）观察实例析构（instance drop）；Rc／Cell还验证未增加线程约束（thread bounds）。
+    struct ControlledSource {
+        next: Cell<u64>,
+        samples: Rc<Cell<usize>>,
+        elapsed_calls: Rc<Cell<usize>>,
+        drops: Rc<Cell<usize>>,
+        sample_error: RefCell<Option<Error>>,
+        elapsed_error: RefCell<Option<Error>>,
+    }
+
+    impl ControlledSource {
+        /// 以任意u64纳秒样本（nanosecond sample）创建来源（source），计数清零且没有待返回错误（pending errors）。
+        fn new(value: u64) -> Self {
+            Self {
+                next: Cell::new(value),
+                samples: Rc::new(Cell::new(0)),
+                elapsed_calls: Rc::new(Cell::new(0)),
+                drops: Rc::new(Cell::new(0)),
+                sample_error: RefCell::new(None),
+                elapsed_error: RefCell::new(None),
+            }
+        }
+    }
+
+    impl Drop for ControlledSource {
+        /// 仅累计本实例的释放（instance disposal），保留外部共享计数（shared count）供断言观察。
+        fn drop(&mut self) {
+            self.drops.set(self.drops.get() + 1);
+        }
+    }
+
+    impl MonotonicSource for ControlledSource {
+        type Sample = u64;
+
+        /// 先累计尝试（attempt），再取走一次性错误（one-shot error）；成功时返回next，不自行推进（advance）。
+        fn try_sample(&self) -> Result<u64> {
+            self.samples.set(self.samples.get() + 1);
+            if let Some(error) = self.sample_error.borrow_mut().take() {
+                return Err(error);
+            }
+            Ok(self.next.get())
+        }
+
+        /// 先累计尝试并消费一次性错误（one-shot error），否则计算同源样本（same-source samples）的受检差（checked difference）。
+        fn try_elapsed(&self, earlier: &u64, later: &u64) -> Result<Duration> {
+            self.elapsed_calls.set(self.elapsed_calls.get() + 1);
+            if let Some(error) = self.elapsed_error.borrow_mut().take() {
+                return Err(error);
+            }
+            let nanos = later.checked_sub(*earlier).ok_or_else(|| Error::new(ErrorKind::InvalidInput))?;
+            Ok(Duration::from_nanos(nanos))
+        }
+
+        /// 固定返回未指定的休眠语义（unspecified suspend behavior），不采样或修改计数（counts）。
+        fn capabilities(&self) -> SourceCapabilities {
+            SourceCapabilities { suspend: SuspendBehavior::Unspecified }
+        }
+    }
+
+    // @trace 2
+    /// 普通读取（ordinary read）只观察缓存（cache），来源变化与采样错误（sampling error）不影响读数。
+    #[test]
+    fn test_read_state_is_a_source_free_snapshot() {
+        let state = try_build_state(ControlledSource::new(123)).unwrap();
+        state.source.next.set(999);
+        *state.source.sample_error.borrow_mut() = Some(Error::new(ErrorKind::Dependency));
+        assert_eq!(read_state(&state), GlobalManualInstant::ZERO);
+        assert_eq!(read_state(&state), GlobalManualInstant::ZERO);
+        assert_eq!(state.source.samples.get(), 1);
+        assert_eq!(state.source.elapsed_calls.get(), 0);
+        assert!(state.source.sample_error.borrow().is_some());
+        assert_eq!(state.origin, 123);
+    }
+
+    // @trace 3
+    /// 安装协议（installation protocol）覆盖准备／首样本失败（preparation/first-sample failure）、
+    /// 显式重试（explicit retry）、重复拒绝（duplicate rejection）及未执行闭包释放（unused closure disposal）。
+    #[test]
+    fn test_install_retries_failures_and_rejects_duplicate_without_preparing() {
+        let slot = OnceLock::<GlobalManualState<ControlledSource>>::new();
+        let error = try_install(&slot, || Err(Error::new(ErrorKind::Dependency).attach("prepare-marker").attach_opaque(41_u32))).unwrap_err();
+        assert_eq!(error.current_context(), &ErrorKind::Dependency);
+        assert_eq!(error.downcast_ref::<u32>(), Some(&41));
+        assert!(format!("{error:?}").contains("prepare-marker"));
+        assert!(slot.get().is_none());
+
+        let failed = ControlledSource::new(7);
+        let failed_drops = failed.drops.clone();
+        *failed.sample_error.borrow_mut() = Some(Error::new(ErrorKind::InvalidState).attach("origin-marker"));
+        let error = try_install(&slot, || Ok(failed)).unwrap_err();
+        assert_eq!(error.current_context(), &ErrorKind::InvalidState);
+        assert!(format!("{error:?}").contains("origin-marker"));
+        assert_eq!(failed_drops.get(), 1);
+        assert!(slot.get().is_none());
+
+        let attempts = Cell::new(0);
+        try_install(&slot, || {
+            attempts.set(attempts.get() + 1);
+            assert!(slot.get().is_none());
+            Ok(ControlledSource::new(77))
+        }).unwrap();
+        let winner = slot.get().unwrap();
+        assert_eq!(attempts.get(), 1);
+        assert_eq!(winner.origin, 77);
+        assert_eq!(read_state(winner), GlobalManualInstant::ZERO);
+
+        let unused = ControlledSource::new(999);
+        let unused_drops = unused.drops.clone();
+        let error = try_install(&slot, || {
+            attempts.set(attempts.get() + 1);
+            Ok(unused)
+        }).unwrap_err();
+        assert_eq!(error.current_context(), &ErrorKind::AlreadyExists);
+        assert_eq!(attempts.get(), 1);
+        assert_eq!(unused_drops.get(), 1);
+        assert_eq!(slot.get().unwrap().origin, 77);
+        assert_eq!(read_state(slot.get().unwrap()), GlobalManualInstant::ZERO);
+    }
+
+    /// 可共享来源（shareable source）只在首采样（first sampling）同步两个竞争候选（competing candidates）。
+    struct RacingSource {
+        origin: u64,
+        gate: Option<std::sync::Arc<std::sync::Barrier>>,
+        drops: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl Drop for RacingSource {
+        /// 每个候选实例（candidate instance）释放时原子累计一次，供胜败者生命周期（winner/loser lifecycle）断言使用。
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    impl MonotonicSource for RacingSource {
+        type Sample = u64;
+        /// 本夹具（fixture）仅用于首采样竞争（first-sampling race）；有屏障（barrier）时每次调用都等待再返回固定样本（fixed sample）。
+        fn try_sample(&self) -> Result<u64> {
+            if let Some(gate) = &self.gate { gate.wait(); }
+            Ok(self.origin)
+        }
+        /// 测试只提供同源有序样本（ordered same-source samples）；逆序触发夹具断言（fixture assertion）。
+        fn try_elapsed(&self, earlier: &u64, later: &u64) -> Result<Duration> {
+            Ok(Duration::from_nanos(later.checked_sub(*earlier).unwrap()))
+        }
+        /// 固定返回未指定的休眠语义（unspecified suspend behavior），不访问屏障（barrier）或计数。
+        fn capabilities(&self) -> SourceCapabilities {
+            SourceCapabilities { suspend: SuspendBehavior::Unspecified }
+        }
+    }
+
+    // @trace 4
+    /// 两个候选（candidates）均已观察空槽（empty slot）再竞争提交（publication），
+    /// 只一个成功且败者立即释放（loser disposal）；没有重置（reset）。
+    #[test]
+    fn test_install_concurrent_candidates_have_one_winner_and_drop_loser() {
+        use std::sync::{Arc, Barrier};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let slot = OnceLock::new();
+        let gate = Arc::new(Barrier::new(2));
+        let drops = Arc::new(AtomicUsize::new(0));
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| try_install(&slot, || Ok(RacingSource { origin: 10, gate: Some(gate.clone()), drops: drops.clone() })));
+            let second = scope.spawn(|| try_install(&slot, || Ok(RacingSource { origin: 11, gate: Some(gate.clone()), drops: drops.clone() })));
+            let results = [first.join().unwrap(), second.join().unwrap()];
+            assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+            let error = results.into_iter().find_map(|result| result.err()).unwrap();
+            assert_eq!(error.current_context(), &ErrorKind::AlreadyExists);
+        });
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        assert!([10, 11].contains(&slot.get().unwrap().origin));
+        assert_eq!(read_state(slot.get().unwrap()), GlobalManualInstant::ZERO);
+        drop(slot);
+        assert_eq!(drops.load(Ordering::SeqCst), 2);
+    }
+
+    // @trace 5
+    /// 本次准备错误（preparation error）不因并发成功安装（concurrent installation）改为重复错误（duplicate error）。
+    #[test]
+    fn test_install_preparation_error_does_not_revoke_other_success() {
+        use std::sync::{Arc, mpsc};
+        use std::sync::atomic::AtomicUsize;
+        let slot = OnceLock::<GlobalManualState<RacingSource>>::new();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (continue_tx, continue_rx) = mpsc::channel();
+        let drops = Arc::new(AtomicUsize::new(0));
+        std::thread::scope(|scope| {
+            let slot_ref = &slot;
+            let failed = scope.spawn(move || try_install(slot_ref, || {
+                entered_tx.send(()).unwrap();
+                continue_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                Err(Error::new(ErrorKind::Dependency).attach("concurrent-prepare-error"))
+            }));
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            try_install(&slot, || Ok(RacingSource { origin: 88, gate: None, drops: drops.clone() })).unwrap();
+            continue_tx.send(()).unwrap();
+            let error = failed.join().unwrap().unwrap_err();
+            assert_eq!(error.current_context(), &ErrorKind::Dependency);
+            assert!(format!("{error:?}").contains("concurrent-prepare-error"));
+        });
+        assert_eq!(slot.get().unwrap().origin, 88);
+        assert_eq!(read_state(slot.get().unwrap()), GlobalManualInstant::ZERO);
+    }
+
+    // @trace 6
+    /// 刷新入口（refresh entry）每次只采样（sample）与求间隔（elapsed calculation）各一次；
+    /// 固定起点（fixed origin）为100，已知10与20纳秒及相等值（equal value）独立给出期望结果。
+    #[test]
+    fn test_refresh_uses_fixed_origin_and_equal_candidates_succeed() {
+        let state = try_build_state(ControlledSource::new(100)).unwrap();
+        let zero = try_refresh_state(&state).unwrap();
+        assert_eq!(zero, RefreshOutcome {
+            sampled: GlobalManualInstant::ZERO,
+            published: GlobalManualInstant::ZERO,
+            advanced: false,
+        });
+        for (sample, expected, advanced) in [(110, 10, true), (110, 10, false), (120, 20, true)] {
+            state.source.next.set(sample);
+            let outcome = try_refresh_state(&state).unwrap();
+            let point = GlobalManualInstant::try_from_elapsed(Duration::from_nanos(expected)).unwrap();
+            assert_eq!(outcome, RefreshOutcome { sampled: point, published: point, advanced });
+            assert_eq!(read_state(&state), point);
+        }
+        assert_eq!(state.origin, 100);
+        assert_eq!(state.source.samples.get(), 5);
+        assert_eq!(state.source.elapsed_calls.get(), 4);
+    }
+
+    // @trace 7
+    /// 采样与间隔错误（sampling/elapsed errors）保留分类及附件（attachments）；
+    /// 已经由生产刷新（production refresh）发布的11纳秒保持，失败后还能从同一起点恢复（recover）。
+    #[test]
+    fn test_refresh_propagates_original_errors_without_writing() {
+        let state = try_build_state(ControlledSource::new(100)).unwrap();
+        state.source.next.set(111);
+        assert!(try_refresh_state(&state).unwrap().advanced);
+        let retained = read_state(&state);
+        *state.source.sample_error.borrow_mut() = Some(Error::new(ErrorKind::Dependency)
+            .attach("sampling-marker").attach_opaque(101_u32));
+        let error = try_refresh_state(&state).unwrap_err();
+        assert_eq!(error.current_context(), &ErrorKind::Dependency);
+        assert_eq!(error.downcast_ref::<u32>(), Some(&101));
+        assert!(format!("{error:?}").contains("sampling-marker"));
+        assert_eq!(read_state(&state), retained);
+        assert_eq!(state.source.samples.get(), 3);
+        assert_eq!(state.source.elapsed_calls.get(), 1);
+
+        *state.source.elapsed_error.borrow_mut() = Some(Error::new(ErrorKind::InvalidState)
+            .attach("elapsed-marker").attach_opaque(102_u32));
+        let error = try_refresh_state(&state).unwrap_err();
+        assert_eq!(error.current_context(), &ErrorKind::InvalidState);
+        assert_eq!(error.downcast_ref::<u32>(), Some(&102));
+        assert!(format!("{error:?}").contains("elapsed-marker"));
+        assert_eq!(read_state(&state), retained);
+        assert_eq!(state.source.samples.get(), 4);
+        assert_eq!(state.source.elapsed_calls.get(), 2);
+        state.source.next.set(121);
+        assert_eq!(try_refresh_state(&state).unwrap().published.duration_since_origin(), Duration::from_nanos(21));
+        assert_eq!(state.origin, 100);
+        assert_eq!(state.source.samples.get(), 5);
+        assert_eq!(state.source.elapsed_calls.get(), 3);
+    }
+
+    /// 不可复制样本（non-Copy sample）不声明Clone；仅由借用（borrow）读取。
+    struct OpaqueSample(Duration);
+
+    /// 借用的来源（borrowed source）保留完整标准时长（standard duration），
+    /// 不要求静态生命周期（static lifetime）、Send或Sync。
+    struct WideSource<'a> {
+        next: &'a Cell<Duration>,
+        samples: &'a Cell<usize>,
+        elapsed_calls: &'a Cell<usize>,
+    }
+
+    impl MonotonicSource for WideSource<'_> {
+        type Sample = OpaqueSample;
+        /// 累计采样次数（sampling count）并包装借用单元（borrowed cell）的完整时长（full duration），不缩窄。
+        fn try_sample(&self) -> Result<OpaqueSample> {
+            self.samples.set(self.samples.get() + 1);
+            Ok(OpaqueSample(self.next.get()))
+        }
+        /// 累计间隔调用（elapsed calls），用完整时长受检相减（checked subtraction），逆序返回InvalidInput。
+        fn try_elapsed(&self, earlier: &OpaqueSample, later: &OpaqueSample) -> Result<Duration> {
+            self.elapsed_calls.set(self.elapsed_calls.get() + 1);
+            later.0.checked_sub(earlier.0).ok_or_else(|| Error::new(ErrorKind::InvalidInput))
+        }
+        /// 固定返回未指定的休眠语义（unspecified suspend behavior），不修改借用计数（borrowed counts）。
+        fn capabilities(&self) -> SourceCapabilities {
+            SourceCapabilities { suspend: SuspendBehavior::Unspecified }
+        }
+    }
+
+    // @trace 8
+    /// u64纳秒上界（nanosecond upper bound）可发布；多1纳秒与Duration::MAX耗尽（exhaustion）
+    /// 不截断（truncate）或写缓存（cache），原最大值保持；来源及样本不增加泛型约束（generic bounds）。
+    #[test]
+    fn test_refresh_rejects_wide_duration_without_losing_maximum() {
+        let next = Cell::new(Duration::ZERO);
+        let samples = Cell::new(0);
+        let elapsed_calls = Cell::new(0);
+        let state = try_build_state(WideSource { next: &next, samples: &samples, elapsed_calls: &elapsed_calls }).unwrap();
+        next.set(Duration::new(18_446_744_073, 709_551_615));
+        assert_eq!(try_refresh_state(&state).unwrap(), RefreshOutcome {
+            sampled: GlobalManualInstant::MAX, published: GlobalManualInstant::MAX, advanced: true,
+        });
+        for duration in [Duration::new(18_446_744_073, 709_551_616), Duration::MAX] {
+            next.set(duration);
+            let error = try_refresh_state(&state).unwrap_err();
+            assert_eq!(error.current_context(), &ErrorKind::ResourceExhausted);
+            assert_eq!(read_state(&state), GlobalManualInstant::MAX);
+        }
+        assert_eq!(samples.get(), 4);
+        assert_eq!(elapsed_calls.get(), 3);
+    }
+
+    /// 序列来源（sequential source）只在间隔计算（elapsed calculation）挂起旧样本10；
+    /// 样本11的生产发布（production publication）完成后，旧调用才恢复（resume）。
+    struct DelayedSource {
+        samples: std::sync::atomic::AtomicUsize,
+        elapsed_calls: std::sync::atomic::AtomicUsize,
+        entered: std::sync::Barrier,
+        release: std::sync::Barrier,
+        fail_late: bool,
+    }
+
+    impl MonotonicSource for DelayedSource {
+        type Sample = u64;
+        /// 按原子调用序号（atomic call index）只提供0、10、11；额外采样（resampling）触发夹具断言（fixture assertion）。
+        fn try_sample(&self) -> Result<u64> {
+            use std::sync::atomic::Ordering::SeqCst;
+            match self.samples.fetch_add(1, SeqCst) {
+                0 => Ok(0),
+                1 => Ok(10),
+                2 => Ok(11),
+                _ => panic!("调用不得重新采样（call must not resample）"),
+            }
+        }
+        /// 只把样本10的间隔计算（elapsed calculation）停在两道屏障（barriers），使11先经生产入口发布。
+        /// 恢复后可返回一次指定错误（specified error）；只控制来源响应（source response），不修改缓存（cache）。
+        fn try_elapsed(&self, earlier: &u64, later: &u64) -> Result<Duration> {
+            self.elapsed_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(*earlier, 0);
+            if *later == 10 {
+                self.entered.wait();
+                self.release.wait();
+                if self.fail_late {
+                    return Err(Error::new(ErrorKind::Dependency).attach("delayed-elapsed-error"));
+                }
+            }
+            Ok(Duration::from_nanos(*later))
+        }
+        /// 固定返回未指定的休眠语义（unspecified suspend behavior），不参与交错（interleaving）。
+        fn capabilities(&self) -> SourceCapabilities {
+            SourceCapabilities { suspend: SuspendBehavior::Unspecified }
+        }
+    }
+
+    // @trace 9
+    /// 两个真实刷新（real refreshes）按10采样／11发布／10完成交错（interleaving）；
+    /// 迟到成功（late success）与迟到错误（late error）均不能撤销11，各调用只采一次。
+    #[test]
+    fn test_refresh_late_ten_never_overwrites_eleven_or_revokes_success() {
+        use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+        for fail_late in [false, true] {
+            let state = try_build_state(DelayedSource {
+                samples: AtomicUsize::new(0), elapsed_calls: AtomicUsize::new(0),
+                entered: std::sync::Barrier::new(2), release: std::sync::Barrier::new(2), fail_late,
+            }).unwrap();
+            std::thread::scope(|scope| {
+                let late = scope.spawn(|| try_refresh_state(&state));
+                state.source.entered.wait();
+                let first = try_refresh_state(&state).unwrap();
+                assert_eq!(first.sampled.duration_since_origin(), Duration::from_nanos(11));
+                assert_eq!(first.published, first.sampled);
+                assert!(first.advanced);
+                assert_eq!(read_state(&state), first.published);
+                state.source.release.wait();
+                let result = late.join().unwrap();
+                if fail_late {
+                    let error = result.unwrap_err();
+                    assert_eq!(error.current_context(), &ErrorKind::Dependency);
+                    assert!(format!("{error:?}").contains("delayed-elapsed-error"));
+                } else {
+                    let outcome = result.unwrap();
+                    assert_eq!(outcome.sampled.duration_since_origin(), Duration::from_nanos(10));
+                    assert_eq!(outcome.published, first.published);
+                    assert!(!outcome.advanced);
+                }
+                assert_eq!(read_state(&state), first.published);
+            });
+            assert_eq!(state.source.samples.load(SeqCst), 3);
+            assert_eq!(state.source.elapsed_calls.load(SeqCst), 2);
+        }
+    }
+
+    // @trace 1
+    /// 首样本（first sample）只取一次；首采样失败（first-sampling failure）的原报告与来源释放（source disposal）保留。
+    #[test]
+    fn test_build_state_samples_once_and_releases_failed_source() {
+        let source = ControlledSource::new(123);
+        let samples = source.samples.clone();
+        let elapsed_calls = source.elapsed_calls.clone();
+        let drops = source.drops.clone();
+        let state = try_build_state(source).unwrap();
+        assert_eq!(samples.get(), 1);
+        assert_eq!(elapsed_calls.get(), 0);
+        assert_eq!(state.origin, 123);
+        assert_eq!(state.cached_nanos.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(drops.get(), 0);
+        drop(state);
+        assert_eq!(drops.get(), 1);
+
+        let failed = ControlledSource::new(456);
+        let failed_samples = failed.samples.clone();
+        let failed_drops = failed.drops.clone();
+        *failed.sample_error.borrow_mut() = Some(Error::new(ErrorKind::Dependency).attach("first-sample-marker").attach_opaque(73_u32));
+        let error = match try_build_state(failed) {
+            Ok(_) => panic!("失败来源不得产生状态（failed source must not create state）"),
+            Err(error) => error,
+        };
+        assert_eq!(error.current_context(), &ErrorKind::Dependency);
+        assert!(format!("{error:?}").contains("first-sample-marker"));
+        assert_eq!(error.downcast_ref::<u32>(), Some(&73));
+        assert_eq!(failed_samples.get(), 1);
+        assert_eq!(failed_drops.get(), 1);
+    }
+}

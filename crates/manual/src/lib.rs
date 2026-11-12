@@ -10,3 +10,6 @@ compile_error!("手推核心（manual core）需要64位原子能力（64-bit at
 
 #[cfg(target_has_atomic = "64")]
 pub mod global;
+
+#[cfg(all(feature = "auto-refresh", any(target_os = "windows", target_os = "linux", target_os = "android")))]
+pub mod auto_refresh;
