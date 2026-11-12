@@ -5,9 +5,10 @@
 //! 不拥有任何时钟的起点、缓存或等待队列（waiting queue），也不启动后台线程。
 //! 复制来源句柄（source handle）共享同一基准，不是分叉一个时钟（clock fork）。
 //!
-//! 当前构造、采样和间隔计算仍为未实现占位（unimplemented stubs），调用会触发
-//! `todo!` 恐慌（panic）；下面说明已确定的接口语义（API semantics），不表示
-//! 运行功能（runtime behavior）已经实现。示例（example）仅作编译检查。
+//! 构造（construction）、采样（sampling）和间隔计算（elapsed calculation）的函数体（function bodies）已实现。
+//! 当前Windows x86_64的公开调用链（public call chain）测试通过；最低支持版本（MSRV）、
+//! 其他目标（targets）及最低系统（minimum OS）的验证状态（validation status）分别确认。
+//! 以下示例（example）仍仅作编译检查（compile check）。
 //!
 //! 原生后端（native backends）按目标操作系统选择：Linux／Android使用
 //! `CLOCK_MONOTONIC`，Windows使用QPC及准备时保存的QPF频率。前者不累计系统

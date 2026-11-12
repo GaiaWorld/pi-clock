@@ -1,0 +1,16 @@
+[package]
+name = "pi-clock-manual"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Process-global manually refreshed monotonic clocks"
+
+[features]
+default = []
+browser = ["pi-clock-platform/browser"]
+
+[dependencies]
+pi-clock-core = { version = "0.1", path = "../core" }
+pi-clock-platform = { version = "0.1", path = "../platform" }
+pi_result.workspace = true

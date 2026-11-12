@@ -6,7 +6,8 @@
 //! 时钟的相对起点（relative origin）、缓存（cache）及推进（refresh）由消费者拥有。
 //! 浏览器来源（browser source）通过 `browser` 功能特性（feature）显式启用。
 //!
-//! 当前只有声明与连接，取时实现（sampling implementation）仍为未实现占位
-//! （unimplemented stubs），尚不能用作取时服务（time service）。
+//! 普通平台单调来源（ordinary platform monotonic source）的函数体（function bodies）已实现；
+//! 当前已有Windows x86_64的构建（build）、功能测试（functional tests）和独立复核（independent review）证据。
+//! 最低支持版本（MSRV）、其他目标（targets）及最低系统（minimum OS）的运行验收（runtime acceptance）分别确认。
 
 pub mod monotonic;
