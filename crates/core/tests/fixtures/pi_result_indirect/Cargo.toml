@@ -1,0 +1,10 @@
+[package]
+name = "pi-clock-error-indirect"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+bridge = { package = "pi-clock-error-bridge", path = "../pi_result_bridge" }

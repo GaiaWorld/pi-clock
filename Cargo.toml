@@ -9,4 +9,4 @@ rust-version = "1.95"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-pi_result = { version = "0.1", path = "../pi_result" }
+pi_result = "0.2"

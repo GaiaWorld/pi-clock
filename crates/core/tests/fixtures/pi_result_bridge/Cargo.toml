@@ -1,0 +1,10 @@
+[package]
+name = "pi-clock-error-bridge"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+pi_result = "0.2"
