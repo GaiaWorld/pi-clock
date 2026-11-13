@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 description = "Foundational source contracts for composable clocks"
+documentation = "https://docs.rs/pi-clock-core"
 
 [dependencies]
 pi_result.workspace = true

@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 description = "Fallible platform monotonic sources for composable clocks"
+documentation = "https://docs.rs/pi-clock-platform"
 
 [features]
 default = []

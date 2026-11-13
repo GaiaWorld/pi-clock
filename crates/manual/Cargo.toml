@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 description = "Process-global manually refreshed monotonic clocks"
+documentation = "https://docs.rs/pi-clock-manual"
 
 [features]
 default = []
